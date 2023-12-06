@@ -1,13 +1,8 @@
 package main.java.day5;
 
-import main.java.day4.Card;
-
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Scanner;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,10 +25,23 @@ public class Resource {
             this.mappings.add(new long[] {Long.parseLong(mappingMatcher.group(1)),
                     Long.parseLong(mappingMatcher.group(2)), Long.parseLong(mappingMatcher.group(3))});
         }
+        this.mappings.sort(Comparator.comparingLong(o -> o[1]));
+        ArrayList<long[]> defaultMappings = new ArrayList<>();
+        long prevEnd = 0;
+        for (long[] mapping: this.mappings) {
+            if (mapping[1] > prevEnd) {
+                defaultMappings.add(new long[] {prevEnd, prevEnd, mapping[1] - prevEnd});
+            }
+            prevEnd = mapping[1] + mapping[2];
+        }
+        defaultMappings.add(new long[] {prevEnd, prevEnd, Long.MAX_VALUE - prevEnd});
+        this.mappings.addAll(defaultMappings);
+        this.mappings.sort(Comparator.comparingLong(o -> o[1]));
+
         resources.put(this.name, this);
     }
     private long getMapping(long from) {
-        for (long [] mapping: mappings) {
+        for (long[] mapping: mappings) {
             if (from >= mapping[1] && from < mapping[1] + mapping[2]) {
                 return mapping[0] + (from - mapping[1]);
             }
@@ -41,8 +49,51 @@ public class Resource {
         return from;
     }
 
+    private ArrayList<long[]> getMapping(long[] range, int mappingStartIndex) {
+        long rangeStart = range[0];
+        long rangeLength = range[1];
+        ArrayList<long[]> ranges = new ArrayList<>();
+        for (int i = mappingStartIndex; i < this.mappings.size(); i++) {
+            long[] mapping = this.mappings.get(i);
+            long mappingToStart = mapping[0];
+            long mappingRangeStart = mapping[1];
+            long mappingRangeLength = mapping[2];
+            if (rangeStart >= mappingRangeStart && rangeStart < mappingRangeStart + mappingRangeLength) {
+                long mappingTo = mappingToStart + (rangeStart - mappingRangeStart);
+                long remainingMappingRange = mappingRangeLength - (rangeStart - mappingRangeStart);
+                if (rangeLength <= remainingMappingRange) {
+                    ranges.add(new long[] {mappingTo, rangeLength});
+                } else {
+                    ranges.add(new long[] {mappingTo, remainingMappingRange});
+                    long[] remainingRange = {rangeStart + remainingMappingRange, rangeLength - remainingMappingRange};
+                    ArrayList<long[]> remainingMapping = this.getMapping(remainingRange, i+ 1);
+                    ranges.addAll(remainingMapping);
+                }
+                break;
+            }
+        }
+        return ranges;
+    }
+
+    private ArrayList<long[]> getMapping(List<long[]> ranges) {
+        ArrayList<long[]> mappings = new ArrayList<>();
+        for (long[] range: ranges) {
+            mappings.addAll(this.getMapping(range, 0));
+        }
+        return mappings;
+    }
+
     private long getResourceTypeMapping(long from, String mapToType) {
         long mapping = this.getMapping(from);
+        if (this.mapTo.equals(mapToType)) {
+            return mapping;
+        } else {
+            return Resource.resources.get(this.mapTo).getResourceTypeMapping(mapping, mapToType);
+        }
+    }
+
+    private ArrayList<long[]> getResourceTypeMapping(List<long[]> from, String mapToType) {
+        ArrayList<long[]> mapping = this.getMapping(from);
         if (this.mapTo.equals(mapToType)) {
             return mapping;
         } else {
@@ -74,21 +125,19 @@ public class Resource {
         Pattern pattern = Pattern.compile("seeds:\\s+((?>\\d*\\s*\\d*\\s*)+)");
         Matcher matcher = pattern.matcher(seedsPairsString);
         if (!matcher.find()) throw new IllegalArgumentException();
-        HashSet<Long> seeds = new HashSet<>();
+        ArrayList<long[]> seedRanges = new ArrayList<>();
         String[] nums = matcher.group(1).split("\\s+");
         for (int i = 0; i < nums.length; i += 2) {
             long start = Long.parseLong(nums[i]);
             long range = Long.parseLong(nums[i + 1]);
-            for (long j = start; j < start + range; j++) {
-                seeds.add(j);
-            }
+            seedRanges.add(new long[] {start, range});
         }
         Resource seed = Resource.resources.get("seed");
         Long minimum = null;
-        for (long seedNum: seeds) {
-            long val = seed.getResourceTypeMapping(seedNum, "location");
-            if (minimum == null || val < minimum) {
-                minimum = val;
+        ArrayList<long[]> mappings = seed.getResourceTypeMapping(seedRanges, "location");
+        for (long[] mapping: mappings) {
+            if (minimum == null || mapping[0] < minimum) {
+                minimum = mapping[0];
             }
         }
         return minimum;
